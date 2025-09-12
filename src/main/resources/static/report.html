@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>PlanT 소비 리포트</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; }
+    textarea, button { width: 100%; padding: 12px; margin: 8px 0; }
+    .card { border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin:12px 0; }
+    .actions button { margin: 4px 6px 0 0; }
+    .muted { color:#6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>PlanT 월간 소비 리포트</h1>
+  <p>컨텍스트 JSON(서버가 만든 비식별 수치)을 붙여넣고 생성해 보세요.</p>
+
+  <textarea id="ctx" rows="10">
+{ "period": "2025-08",
+  "by_category": { "카페/음료": 72300, "식비": 168000, "교통": 24100, "구독": 33000 },
+  "prev_by_category": { "카페/음료": 54000, "식비": 172000, "교통": 22000, "구독": 33000 },
+  "percentiles": { "total": 0.65, "cafe": 0.84 },
+  "allowed_deeplinks": ["지출분석 보기", "카페 지출 한도 설정", "구독 관리"]
+}
+  </textarea>
+  <button id="run">리포트 생성</button>
+
+  <div id="result" class="card" style="display:none;">
+    <h3 id="summary"></h3>
+    <div class="actions"></div>
+    <div class="tips"></div>
+    <p id="disclaimer" class="muted"></p>
+  </div>
+
+  <script>
+    async function postReport(prompt) {
+      const res = await fetch("/api/chat/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      return data.answer; // 서버는 JSON 문자열을 반환
+    }
+
+    document.getElementById("run").onclick = async () => {
+      const ctx = document.getElementById("ctx").value;
+      const container = document.getElementById("result");
+      const summaryEl = document.getElementById("summary");
+      const actionsEl = container.querySelector(".actions");
+      const tipsEl = container.querySelector(".tips");
+      const disclaimerEl = document.getElementById("disclaimer");
+
+      summaryEl.textContent = "생성 중…";
+      actionsEl.innerHTML = "";
+      tipsEl.innerHTML = "";
+      disclaimerEl.textContent = "";
+      container.style.display = "block";
+
+      try {
+        const jsonText = await postReport(ctx);
+        const out = JSON.parse(jsonText); // 스키마: summary, actions[], coaching[], disclaimer
+
+        summaryEl.textContent = out.summary || "(요약 없음)";
+
+        // actions
+        if (Array.isArray(out.actions)) {
+          out.actions.forEach(a => {
+            const btn = document.createElement("button");
+            btn.textContent = a.label;
+            btn.title = a.reason || "";
+            btn.onclick = () => alert(`[딥링크 실행 가정]\n${a.label}\n이유: ${a.reason || "-"}`);
+            actionsEl.appendChild(btn);
+          });
+        }
+
+        // coaching tips
+        if (Array.isArray(out.coaching)) {
+          out.coaching.forEach(c => {
+            const div = document.createElement("div");
+            div.className = "card";
+            div.innerHTML = `<b>${c.title || "코칭"}</b><br/>${c.tip || ""}`;
+            tipsEl.appendChild(div);
+          });
+        }
+
+        disclaimerEl.textContent = out.disclaimer || "";
+      } catch (e) {
+        summaryEl.textContent = "오류: " + e.message;
+      }
+    };
+  </script>
+</body>
+</html>
